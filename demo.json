@@ -1,0 +1,1 @@
+{"qubits":3,"gates":[{"op":"h","qubits":[0]},{"op":"x","qubits":[2]},{"op":"h","qubits":[0]},{"op":"rz","qubits":[1],"angle":0.5},{"op":"rz","qubits":[1],"angle":-0.5},{"op":"cx","qubits":[0,1]},{"op":"cx","qubits":[0,1]}]}

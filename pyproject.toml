@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quanta-forge"
+version = "0.1.0"
+description = "A verifiable, benchmarkable quantum circuit rewrite laboratory"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24"]
+license = {text = "MIT"}
+
+[project.scripts]
+qforge = "qforge:main"
+
+[tool.setuptools]
+py-modules = ["qforge"]
