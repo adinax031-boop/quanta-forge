@@ -99,7 +99,11 @@ def route_line_persistent(circuit: Circuit) -> tuple[Circuit, dict]:
 
 
 def route_line_best(circuit: Circuit) -> tuple[Circuit, dict]:
-    """Choose the smaller raw routed circuit, falling back if one exceeds its cap."""
+    """Choose by final CX count after the same post-routing optimization.
+
+    Comparing raw routes can select the wrong candidate because the following
+    rewrite pass can cancel a different number of gates in each route.
+    """
     candidates = []
     for name, router in (('persistent', route_line_persistent), ('restore', route_line)):
         try:
@@ -108,11 +112,13 @@ def route_line_best(circuit: Circuit) -> tuple[Circuit, dict]:
             if 'limit' not in str(exc):
                 raise
             continue
-        candidates.append((len(candidate.gates), name, candidate, details))
+        optimized, _ = optimize(candidate)
+        candidates.append((metrics(optimized)['cx'], len(optimized.gates), name, candidate, details))
     if not candidates:
         raise ValueError('both line routers exceed the gate limit')
-    _, name, result, details = min(candidates, key=lambda x: x[0])
-    return result, {**details, 'selected_router': name}
+    cx, gates, name, result, details = min(candidates, key=lambda x: (x[0], x[1], x[2]))
+    return result, {**details, 'selected_router': name,
+                    'predicted_post_rewrite_cx': cx, 'predicted_post_rewrite_gates': gates}
 
 
 class PassManager:

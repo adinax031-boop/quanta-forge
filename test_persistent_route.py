@@ -1,6 +1,6 @@
 import random
 import unittest
-from qforge import Circuit, Gate, compare
+from qforge import Circuit, Gate, compare, optimize
 from qforge_compiler import route_line_persistent, route_line, route_line_best, metrics
 
 
@@ -36,11 +36,58 @@ class PersistentRoutingTests(unittest.TestCase):
         self.assertLess(metrics(new)['cx'], metrics(old)['cx'])
         self.assertTrue(compare(original, new)['equivalent_up_to_global_phase'])
 
-    def test_adaptive_is_never_larger_than_either_router(self):
+    def test_adaptive_final_cx_is_never_worse_than_either_router(self):
         from benchmark_qf02 import make_circuits
         for _, _, circuit in make_circuits(seed=7251, cases=50):
             old, _ = route_line(circuit)
             new, _ = route_line_persistent(circuit)
             best, _ = route_line_best(circuit)
-            self.assertLessEqual(len(best.gates), min(len(old.gates), len(new.gates)))
+            old, _ = optimize(old)
+            new, _ = optimize(new)
+            best, _ = optimize(best)
+            self.assertLessEqual(metrics(best)['cx'], min(metrics(old)['cx'], metrics(new)['cx']))
             self.assertTrue(compare(circuit, best)['equivalent_up_to_global_phase'])
+
+    def test_independent_statevector_oracle(self):
+        # Independent amplitude update; does not call QuantaForge's verifier.
+        import cmath
+        import math
+        import numpy as np
+        def run(circuit, state):
+            state = state.copy()
+            for gate in circuit.gates:
+                if gate.op == 'cx':
+                    c, t = gate.qubits
+                    for i in range(len(state)):
+                        if (i >> c) & 1 and not (i >> t) & 1:
+                            j = i | (1 << t)
+                            state[i], state[j] = state[j], state[i]
+                else:
+                    q = gate.qubits[0]
+                    if gate.op == 'h':
+                        a, b, c, d = (1/math.sqrt(2), 1/math.sqrt(2), 1/math.sqrt(2), -1/math.sqrt(2))
+                    elif gate.op == 'x':
+                        a, b, c, d = (0, 1, 1, 0)
+                    elif gate.op == 'rz':
+                        a, b, c, d = (cmath.exp(-0.5j*gate.angle), 0, 0, cmath.exp(0.5j*gate.angle))
+                    else:
+                        raise AssertionError(gate.op)
+                    for i in range(len(state)):
+                        if not (i >> q) & 1:
+                            j = i | (1 << q)
+                            x, y = state[i], state[j]
+                            state[i], state[j] = a*x+b*y, c*x+d*y
+            return state
+        rng = random.Random(4183)
+        for n in range(2, 7):
+            for _ in range(25):
+                gates = []
+                for _ in range(35):
+                    op = rng.choice(('cx', 'h', 'x', 'rz'))
+                    gates.append(Gate(op, tuple(rng.sample(range(n), 2)) if op == 'cx' else (rng.randrange(n),),
+                                      rng.uniform(-3, 3) if op == 'rz' else None))
+                circuit = Circuit(n, tuple(gates))
+                routed, _ = route_line_best(circuit)
+                state = np.array([complex(rng.random()-.5, rng.random()-.5) for _ in range(1 << n)])
+                state /= np.linalg.norm(state)
+                self.assertTrue(np.allclose(run(circuit, state), run(routed, state), atol=1e-11, rtol=1e-11))
